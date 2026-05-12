@@ -1,0 +1,877 @@
+"""
+OniChrom Load Panel – v3
+Supports:
+  • Single or multiple CSV/image files
+  • Entire folder (scans all CSV and images inside)
+  • ZIP archive (extracts in-memory and loads all CSV/images found)
+  • Manual data entry
+  • Per-file mode selection: CSV, Image, or Auto
+  • Loaded-files list with remove button
+  • DatasetInfoDialog with gradient/run-condition fields
+"""
+
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import os
+import zipfile
+import tempfile
+import shutil
+
+
+SUPPORTED_CSV = (".csv", ".txt", ".tsv")
+SUPPORTED_IMG = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+
+def _make_display_name(chrom) -> str:
+    """Build a compact display string for a chrom in the file list."""
+    parts = []
+    if chrom.flow_rate > 0:
+        parts.append(f"F={chrom.flow_rate:.3g}mL/min")
+    if chrom.linear_velocity > 0:
+        parts.append(f"u={chrom.linear_velocity:.3g}mm/s")
+    if chrom.temperature > 0:
+        parts.append(f"{chrom.temperature:.0f}°C")
+    if chrom.mobile_phase:
+        parts.append(chrom.mobile_phase)
+    if chrom.gradient_type:
+        parts.append(chrom.gradient_type)
+    if parts:
+        return f"{chrom.name}  [{' | '.join(parts)}]"
+    return chrom.name
+
+
+class LoadPanel(ttk.LabelFrame):
+    """
+    Universal data-loading panel.
+    Fires on_loaded(chrom_data, label) for every successfully loaded dataset.
+    """
+
+    def __init__(self, parent, theme, on_loaded=None, multi=True,
+                 show_file_list=True, **kw):
+        kw.setdefault("text", "Data Source")
+        super().__init__(parent, **kw)
+        self.theme = theme
+        self.on_loaded = on_loaded
+        self.multi = multi
+        self.show_file_list = show_file_list
+
+        self._loaded = {}       # name -> ChromatogramData
+        self._tmp_dirs = []     # temp dirs to clean up
+
+        # Image extraction settings (shared)
+        self.xmin_var = tk.StringVar(value="0.0")
+        self.xmax_var = tk.StringVar(value="20.0")
+        self.ymax_var = tk.StringVar(value="")
+        self.npts_var = tk.StringVar(value="500")
+
+        self._build()
+
+    # ---- UI construction -------------------------------------------------
+
+    def _build(self):
+        # Row 1: action buttons
+        row1 = ttk.Frame(self)
+        row1.pack(fill="x", padx=6, pady=(6, 2))
+
+        ttk.Button(row1, text="📂 CSV File(s)",
+                   command=self._load_csv_files).pack(side="left", padx=2)
+        ttk.Button(row1, text="🖼 Image File(s)",
+                   command=self._load_image_files).pack(side="left", padx=2)
+        ttk.Button(row1, text="📁 Folder",
+                   command=self._load_folder).pack(side="left", padx=2)
+        ttk.Button(row1, text="🗜 ZIP",
+                   command=self._load_zip).pack(side="left", padx=2)
+        ttk.Button(row1, text="✏ Manual",
+                   command=self._manual_entry,
+                   style="Secondary.TButton").pack(side="left", padx=2)
+
+        # Image extraction settings (collapsible)
+        self._img_visible = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self, text="⚙ Image extraction settings",
+            variable=self._img_visible,
+            command=self._toggle_img_settings,
+        ).pack(anchor="w", padx=8, pady=0)
+
+        self._img_settings_frame = ttk.Frame(self)
+        self._build_img_settings(self._img_settings_frame)
+
+        # Status bar
+        self.status_lbl = ttk.Label(self, text="No data loaded.",
+                                    style="Muted.TLabel", wraplength=340)
+        self.status_lbl.pack(fill="x", padx=8, pady=(2, 2))
+
+        # Loaded-files list
+        if self.show_file_list:
+            self._build_file_list()
+
+    def _build_img_settings(self, parent):
+        g = parent
+        ttk.Label(g, text="X range:").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+        ttk.Entry(g, textvariable=self.xmin_var, width=6).grid(row=0, column=1, padx=1)
+        ttk.Label(g, text="to").grid(row=0, column=2)
+        ttk.Entry(g, textvariable=self.xmax_var, width=6).grid(row=0, column=3, padx=1)
+        ttk.Label(g, text="min").grid(row=0, column=4, padx=2)
+
+        ttk.Label(g, text="Y max (auto):").grid(row=1, column=0, padx=4, pady=2, sticky="w")
+        ttk.Entry(g, textvariable=self.ymax_var, width=6).grid(row=1, column=1, padx=1)
+
+        ttk.Label(g, text="Points:").grid(row=1, column=2, padx=4, sticky="w")
+        ttk.Entry(g, textvariable=self.npts_var, width=6).grid(row=1, column=3, padx=1)
+
+    def _toggle_img_settings(self):
+        if self._img_visible.get():
+            self._img_settings_frame.pack(fill="x", padx=8, pady=2)
+        else:
+            self._img_settings_frame.pack_forget()
+
+    def _build_file_list(self):
+        lf = ttk.LabelFrame(self, text="Loaded Datasets")
+        lf.pack(fill="both", expand=True, padx=6, pady=4)
+
+        vsb = ttk.Scrollbar(lf, orient="vertical")
+        self._file_tree = ttk.Treeview(
+            lf, columns=("Name", "Points", "Type"),
+            show="headings", yscrollcommand=vsb.set, height=5,
+        )
+        vsb.config(command=self._file_tree.yview)
+        self._file_tree.heading("Name",   text="Dataset")
+        self._file_tree.heading("Points", text="Points")
+        self._file_tree.heading("Type",   text="Source")
+        self._file_tree.column("Name",   width=150, stretch=True)
+        self._file_tree.column("Points", width=55,  anchor="center")
+        self._file_tree.column("Type",   width=55,  anchor="center")
+        self._file_tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        btn_row = ttk.Frame(lf)
+        btn_row.pack(fill="x", padx=2, pady=2)
+        ttk.Button(btn_row, text="✏ Edit Info",
+                   command=self._edit_selected_info,
+                   style="Secondary.TButton").pack(side="left", padx=2)
+        ttk.Button(btn_row, text="Remove Selected",
+                   command=self._remove_selected,
+                   style="Secondary.TButton").pack(side="left", padx=2)
+        ttk.Button(btn_row, text="Clear All",
+                   command=self._clear_all,
+                   style="Secondary.TButton").pack(side="left", padx=2)
+
+        # Double-click to edit dataset metadata
+        self._file_tree.bind("<Double-1>", self._on_tree_double_click)
+
+    # ---- Loading actions -------------------------------------------------
+
+    def _load_csv_files(self):
+        if self.multi:
+            paths = filedialog.askopenfilenames(
+                filetypes=[("CSV/Text", "*.csv *.txt *.tsv"), ("All", "*.*")],
+                title="Select CSV file(s)")
+        else:
+            p = filedialog.askopenfilename(
+                filetypes=[("CSV/Text", "*.csv *.txt *.tsv"), ("All", "*.*")],
+                title="Select CSV file")
+            paths = [p] if p else []
+        self._process_paths(list(paths), mode="csv")
+
+    def _load_image_files(self):
+        if self.multi:
+            paths = filedialog.askopenfilenames(
+                filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff"),
+                           ("All", "*.*")],
+                title="Select image file(s)")
+        else:
+            p = filedialog.askopenfilename(
+                filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff"),
+                           ("All", "*.*")],
+                title="Select image file")
+            paths = [p] if p else []
+        self._process_paths(list(paths), mode="image")
+
+    def _load_folder(self):
+        folder = filedialog.askdirectory(
+            title="Select folder containing chromatogram files")
+        if not folder:
+            return
+
+        mode = self._ask_folder_mode()
+        if mode is None:
+            return
+
+        paths = []
+        for fname in sorted(os.listdir(folder)):
+            ext = os.path.splitext(fname)[1].lower()
+            full = os.path.join(folder, fname)
+            if not os.path.isfile(full):
+                continue
+            if mode in ("csv", "both") and ext in SUPPORTED_CSV:
+                paths.append(full)
+            if mode in ("image", "both") and ext in SUPPORTED_IMG:
+                paths.append(full)
+
+        if not paths:
+            messagebox.showinfo("No Files Found",
+                                f"No compatible files found in:\n{folder}")
+            return
+
+        self.status_lbl.config(text=f"Loading {len(paths)} file(s)…")
+        self.update_idletasks()
+        self._process_paths(paths, mode=mode)
+
+    def _load_zip(self):
+        zip_path = filedialog.askopenfilename(
+            filetypes=[("ZIP Archive", "*.zip"), ("All", "*.*")],
+            title="Select ZIP archive")
+        if not zip_path:
+            return
+
+        mode = self._ask_folder_mode()
+        if mode is None:
+            return
+
+        tmp = tempfile.mkdtemp(prefix="onichrom_zip_")
+        self._tmp_dirs.append(tmp)
+
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(tmp)
+        except Exception as e:
+            messagebox.showerror("ZIP Error", f"Could not open ZIP:\n{e}")
+            return
+
+        paths = []
+        for root, dirs, files in os.walk(tmp):
+            for fname in sorted(files):
+                ext = os.path.splitext(fname)[1].lower()
+                full = os.path.join(root, fname)
+                if mode in ("csv", "both") and ext in SUPPORTED_CSV:
+                    paths.append(full)
+                if mode in ("image", "both") and ext in SUPPORTED_IMG:
+                    paths.append(full)
+
+        if not paths:
+            messagebox.showinfo("No Files Found",
+                                "No compatible files found inside the ZIP.")
+            return
+
+        self.status_lbl.config(text=f"Loading {len(paths)} file(s) from ZIP…")
+        self.update_idletasks()
+        self._process_paths(paths, mode=mode)
+
+    def _ask_folder_mode(self):
+        dlg = _FolderModeDialog(self)
+        self.wait_window(dlg)
+        return dlg.result  # "csv", "image", "both", or None
+
+    def _manual_entry(self):
+        ManualEntryDialog(self, self.theme, callback=self._on_chrom_loaded)
+
+    # ---- Processing -------------------------------------------------------
+
+    def _process_paths(self, paths, mode="auto"):
+        if not paths:
+            return
+
+        loaded_names = []
+        errors = []
+
+        for path in paths:
+            ext = os.path.splitext(path)[1].lower()
+            if mode == "both":
+                actual = "csv" if ext in SUPPORTED_CSV else "image"
+            elif mode == "auto":
+                actual = "csv" if ext in SUPPORTED_CSV else "image"
+            else:
+                actual = mode
+
+            try:
+                self.status_lbl.config(
+                    text=f"Loading {os.path.basename(path)}…")
+                self.update_idletasks()
+
+                if actual == "csv":
+                    from utils.data_io import load_csv
+                    chrom = load_csv(path)
+                else:
+                    chrom = self._extract_image(path)
+
+                self._on_chrom_loaded(chrom)
+                loaded_names.append(chrom.name)
+
+            except Exception as e:
+                errors.append(f"{os.path.basename(path)}: {e}")
+
+        n = len(loaded_names)
+        msg = f"{n} dataset(s) loaded."
+        if errors:
+            msg += f"  {len(errors)} error(s)."
+            messagebox.showwarning(
+                "Load Errors",
+                "Some files could not be loaded:\n\n" +
+                "\n".join(errors[:10]) +
+                ("\n…" if len(errors) > 10 else "")
+            )
+        self.status_lbl.config(text=msg)
+
+    def _extract_image(self, path):
+        from utils.data_io import extract_chromatogram_from_image
+        try:
+            xmin  = float(self.xmin_var.get())
+            xmax  = float(self.xmax_var.get())
+            ys    = self.ymax_var.get().strip()
+            ymax  = float(ys) if ys else None
+            npts  = int(self.npts_var.get())
+        except ValueError:
+            xmin, xmax, ymax, npts = 0.0, 20.0, None, 500
+        return extract_chromatogram_from_image(
+            path, x_range=(xmin, xmax),
+            y_range=(0.0, ymax), n_points=npts)
+
+    def _on_chrom_loaded(self, chrom):
+        if chrom is None:
+            return
+        # Deduplicate name
+        base = chrom.name
+        if base in self._loaded:
+            i = 2
+            while f"{base}_{i}" in self._loaded:
+                i += 1
+            chrom.name = f"{base}_{i}"
+
+        # ── Auto-parse run conditions from filename ────────────────────────
+        # Supported patterns (case-insensitive):
+        #   _F1p5    → flow rate 1.5 mL/min       (F = flow)
+        #   _u0p200  → linear velocity 0.200 mm/s (u = velocity)
+        #   _T30     → temperature 30 °C
+        #   _B40     → 40% organic (mobile phase B)
+        #   _H5p100  → plate height 5.100 mm (informational)
+        import re as _re
+
+        fname = chrom.name
+
+        def _parse_num(s):
+            """Convert '0p200' or '0_200' → 0.200, '1p5' → 1.5"""
+            return float(_re.sub(r'[p_]', '.', s, count=1))
+
+        # Flow rate from filename  (F prefix → mL/min)
+        if chrom.flow_rate == 0.0:
+            m = _re.search(r'[_\-]F(\d+[p_]\d+)', fname, _re.I)
+            if m:
+                try:
+                    chrom.flow_rate = _parse_num(m.group(1))
+                except ValueError:
+                    pass
+
+        # Linear velocity from filename  (u prefix → mm/s)
+        if chrom.linear_velocity == 0.0:
+            m = _re.search(r'[_\-]u(\d+[p_]\d+)', fname, _re.I)
+            if m:
+                try:
+                    chrom.linear_velocity = _parse_num(m.group(1))
+                except ValueError:
+                    pass
+
+        # NOTE: Flow rate and linear velocity are NOT auto-converted from each other.
+        # They are independent measurements — conversion depends on column porosity
+        # which is not reliably known. User must enter each value explicitly.
+
+        # Temperature
+        if chrom.temperature == 0.0:
+            m = _re.search(r'[_\-]T(\d+)', fname, _re.I)
+            if m:
+                try:
+                    chrom.temperature = float(m.group(1))
+                except ValueError:
+                    pass
+
+        # %B (organic modifier)
+        m = _re.search(r'[_\-]B(\d+)', fname, _re.I)
+        if m and not chrom.mobile_phase:
+            chrom.mobile_phase = f"{m.group(1)}%B"
+        elif m:
+            pct = f"{m.group(1)}%B"
+            if pct not in chrom.mobile_phase:
+                chrom.mobile_phase = chrom.mobile_phase + f" {pct}"
+
+        # ── Store in loaded dict ───────────────────────────────────────────
+        self._loaded[chrom.name] = chrom
+
+        if self.show_file_list and hasattr(self, "_file_tree"):
+            src = "IMG" if chrom.metadata.get("source") == "image_extraction" else "CSV"
+            iid = chrom.name.replace(" ", "_").replace(".", "_")[:50]
+            base_iid = iid
+            n = 2
+            while self._file_tree.exists(iid):
+                iid = f"{base_iid}_{n}"
+                n += 1
+            display = _make_display_name(chrom)
+            self._file_tree.insert(
+                "", "end", iid=iid,
+                values=(display, len(chrom.time), src))
+
+        if self.on_loaded:
+            self.on_loaded(chrom, chrom.name)
+
+    def _on_tree_double_click(self, event):
+        """Open dataset info editor on double-click."""
+        if not hasattr(self, "_file_tree"):
+            return
+        sel = self._file_tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        vals = self._file_tree.item(iid, "values")
+        if not vals:
+            return
+        chrom_name = vals[0].split("  [")[0]
+        chrom = self._loaded.get(chrom_name)
+        if chrom is None:
+            return
+        DatasetInfoDialog(self, self.theme, chrom,
+                          on_save=lambda: self._refresh_tree_item(iid, chrom))
+
+    def _edit_selected_info(self):
+        """Edit metadata for selected dataset."""
+        if not hasattr(self, "_file_tree"):
+            return
+        sel = self._file_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select Dataset",
+                                "Select a dataset in the list first.")
+            return
+        iid = sel[0]
+        vals = self._file_tree.item(iid, "values")
+        if not vals:
+            return
+        chrom_name = vals[0].split("  [")[0]
+        chrom = self._loaded.get(chrom_name)
+        if chrom is None:
+            return
+        DatasetInfoDialog(self, self.theme, chrom,
+                          on_save=lambda: self._refresh_tree_item(iid, chrom))
+
+    def _refresh_tree_item(self, iid, chrom):
+        """Update treeview row after metadata edit."""
+        if not self._file_tree.exists(iid):
+            return
+        src = "IMG" if chrom.metadata.get("source") == "image_extraction" else "CSV"
+        self._file_tree.item(iid, values=(_make_display_name(chrom), len(chrom.time), src))
+
+    # ---- File list management --------------------------------------------
+
+    def _remove_selected(self):
+        if not hasattr(self, "_file_tree"):
+            return
+        for iid in self._file_tree.selection():
+            vals = self._file_tree.item(iid, "values")
+            if vals:
+                self._loaded.pop(vals[0].split("  [")[0], None)
+            self._file_tree.delete(iid)
+        self.status_lbl.config(
+            text=f"{len(self._loaded)} dataset(s) remaining.")
+
+    def _clear_all(self):
+        if not hasattr(self, "_file_tree"):
+            return
+        self._file_tree.delete(*self._file_tree.get_children())
+        self._loaded.clear()
+        self.status_lbl.config(text="All datasets cleared.")
+
+    # ---- Cleanup ----------------------------------------------------------
+
+    def destroy(self):
+        for tmp in self._tmp_dirs:
+            try:
+                shutil.rmtree(tmp, ignore_errors=True)
+            except Exception:
+                pass
+        super().destroy()
+
+
+# ---- Folder mode dialog --------------------------------------------------
+
+class _FolderModeDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Select File Types to Load")
+        self.resizable(False, False)
+        self.result = None
+
+        tk.Label(self,
+                 text="What type of files should be loaded?",
+                 font=("Helvetica Neue", 10, "bold")).pack(padx=24, pady=(16, 6))
+
+        btns = ttk.Frame(self)
+        btns.pack(padx=20, pady=(0, 16))
+
+        ttk.Button(btns, text="📄  CSV / Text only",
+                   command=lambda: self._pick("csv"),
+                   width=18).pack(pady=3, fill="x")
+        ttk.Button(btns, text="🖼  Images only",
+                   command=lambda: self._pick("image"),
+                   width=18).pack(pady=3, fill="x")
+        ttk.Button(btns, text="📂  Both CSV and Images",
+                   command=lambda: self._pick("both"),
+                   width=18).pack(pady=3, fill="x")
+        ttk.Button(btns, text="Cancel",
+                   command=self.destroy,
+                   style="Secondary.TButton",
+                   width=18).pack(pady=(8, 0), fill="x")
+
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def _pick(self, mode):
+        self.result = mode
+        self.destroy()
+
+
+# ---- Manual entry dialog -------------------------------------------------
+
+class ManualEntryDialog(tk.Toplevel):
+    def __init__(self, parent, theme, callback=None):
+        super().__init__(parent)
+        self.title("Manual Data Entry")
+        self.geometry("540x500")
+        self.theme = theme
+        self.callback = callback
+        self.resizable(True, True)
+        self._build()
+        self.grab_set()
+
+    def _build(self):
+        top = ttk.Frame(self)
+        top.pack(fill="x", padx=12, pady=(10, 0))
+
+        ttk.Label(top, text="Dataset name:").pack(side="left")
+        self.name_var = tk.StringVar(value="Manual Entry 1")
+        ttk.Entry(top, textvariable=self.name_var, width=24).pack(
+            side="left", padx=8)
+
+        ttk.Label(self,
+                  text="Paste or type data — one point per line.\n"
+                       "Accepted:  time,intensity  |  time;intensity  |  time  intensity",
+                  wraplength=500, justify="left").pack(
+                      anchor="w", padx=12, pady=(6, 2))
+
+        frame = ttk.Frame(self)
+        frame.pack(fill="both", expand=True, padx=12, pady=4)
+        vsb = ttk.Scrollbar(frame, orient="vertical")
+        self.text = tk.Text(
+            frame, height=18, font=("Courier New", 10),
+            bg=self.theme.PANEL_BG, fg=self.theme.FG,
+            insertbackground=self.theme.FG,
+            yscrollcommand=vsb.set)
+        vsb.config(command=self.text.yview)
+        self.text.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        self.text.insert(
+            "1.0",
+            "# Time_min,Intensity\n"
+            "0.0,0.0\n1.0,5.2\n2.0,15.4\n3.0,80.2\n4.0,310.5\n"
+            "5.0,1250.0\n6.0,320.1\n7.0,82.3\n8.0,16.2\n9.0,5.1\n10.0,0.0\n")
+
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", padx=12, pady=8)
+        ttk.Button(btns, text="Import",
+                   command=self._import).pack(side="left", padx=4)
+        ttk.Button(btns, text="Cancel",
+                   command=self.destroy,
+                   style="Secondary.TButton").pack(side="left")
+
+        self.err_lbl = ttk.Label(self, text="", style="Muted.TLabel")
+        self.err_lbl.pack(anchor="w", padx=12)
+
+    def _import(self):
+        from utils.data_io import ChromatogramData
+        import numpy as np
+
+        raw = self.text.get("1.0", "end")
+        times, intensities = [], []
+
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = None
+            for sep in (",", ";", "\t"):
+                if sep in line:
+                    parts = line.split(sep)
+                    break
+            if parts is None:
+                parts = line.split()
+            try:
+                t = float(parts[0].strip().replace(",", "."))
+                y = float(parts[1].strip().replace(",", "."))
+                times.append(t)
+                intensities.append(y)
+            except (ValueError, IndexError):
+                continue
+
+        if len(times) < 2:
+            self.err_lbl.config(
+                text="Need at least 2 valid time/intensity pairs.")
+            return
+
+        name = self.name_var.get().strip() or "Manual Entry"
+        chrom = ChromatogramData(
+            name=name,
+            time=np.array(times),
+            intensity=np.array(intensities),
+        )
+        if self.callback:
+            self.callback(chrom)
+        self.destroy()
+
+
+# ---- Dataset Info / Metadata Dialog -------------------------------------
+
+class DatasetInfoDialog(tk.Toplevel):
+    """
+    Dialog to set per-dataset run conditions:
+      display label, flow rate, linear velocity, temperature,
+      mobile phase, gradient type, %B initial/final, gradient time, notes.
+    Opens on double-click of a dataset in the Loaded Datasets list.
+    """
+
+    def __init__(self, parent, theme, chrom, on_save=None, global_column_d=4.6):
+        super().__init__(parent)
+        self.title(f"Dataset Info — {chrom.name}")
+        self.geometry("500x600")
+        self.resizable(False, True)
+        self.theme = theme
+        self.chrom = chrom
+        self.on_save = on_save
+        self.global_column_d = global_column_d
+        self._build()
+        self.grab_set()
+
+    def _build(self):
+        import math
+        pad = {"padx": 10, "pady": 3}
+
+        # Header
+        ttk.Label(self, text=f"📄  {self.chrom.name}",
+                  font=("Helvetica Neue", 10, "bold")).pack(
+                      anchor="w", padx=12, pady=(10, 2))
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=10, pady=4)
+
+        form = ttk.Frame(self)
+        form.pack(fill="x", padx=12)
+
+        def entry_row(r, label, var, unit="", hint=""):
+            ttk.Label(form, text=label).grid(
+                row=r, column=0, sticky="w", **pad)
+            e = ttk.Entry(form, textvariable=var, width=14)
+            e.grid(row=r, column=1, sticky="w", padx=(0, 4), pady=3)
+            if unit:
+                ttk.Label(form, text=unit,
+                          style="Muted.TLabel").grid(row=r, column=2, sticky="w")
+            if hint:
+                ttk.Label(form, text=hint, style="Muted.TLabel",
+                          font=("Helvetica Neue", 8)).grid(
+                              row=r, column=3, sticky="w", padx=4)
+            return e
+
+        def wide_row(r, label, var):
+            ttk.Label(form, text=label).grid(
+                row=r, column=0, sticky="w", **pad)
+            e = ttk.Entry(form, textvariable=var, width=30)
+            e.grid(row=r, column=1, columnspan=3, sticky="ew", padx=(0, 4), pady=3)
+            return e
+
+        # ── Plot Label ──────────────────────────────────────────────────────
+        self._label_var = tk.StringVar(value=self.chrom.display_label)
+        wide_row(0, "Plot Label:", self._label_var)
+        ttk.Label(form, text="  e.g. '1.0 mL/min', '60% B', '40°C'",
+                  style="Muted.TLabel",
+                  font=("Helvetica Neue", 8)).grid(
+                      row=1, column=0, columnspan=4, sticky="w", padx=10)
+
+        ttk.Separator(form, orient="horizontal").grid(
+            row=2, column=0, columnspan=4, sticky="ew", pady=(6, 2))
+
+        # ── Flow Conditions ─────────────────────────────────────────────────
+        ttk.Label(form, text="Flow Conditions",
+                  font=("Helvetica Neue", 9, "bold")).grid(
+                      row=3, column=0, columnspan=4, sticky="w", padx=10, pady=(4, 2))
+
+        self._flow_var = tk.StringVar(
+            value=f"{self.chrom.flow_rate:.4g}" if self.chrom.flow_rate > 0 else "")
+        entry_row(4, "Flow Rate:", self._flow_var, "mL/min", "(blank → use global)")
+
+        self._uvel_var = tk.StringVar(
+            value=f"{self.chrom.linear_velocity:.4g}"
+            if self.chrom.linear_velocity > 0 else "")
+        entry_row(5, "Linear Velocity:", self._uvel_var, "mm/s",
+                  "(auto-calc from flow if blank)")
+
+        self._temp_var = tk.StringVar(
+            value=f"{self.chrom.temperature:.4g}"
+            if self.chrom.temperature > 0 else "")
+        entry_row(6, "Temperature:", self._temp_var, "°C", "")
+
+        self._mp_var = tk.StringVar(value=self.chrom.mobile_phase)
+        wide_row(7, "Mobile Phase:", self._mp_var)
+
+        ttk.Separator(form, orient="horizontal").grid(
+            row=8, column=0, columnspan=4, sticky="ew", pady=(6, 2))
+
+        # ── Gradient / Run Type ─────────────────────────────────────────────
+        ttk.Label(form, text="Run Conditions",
+                  font=("Helvetica Neue", 9, "bold")).grid(
+                      row=9, column=0, columnspan=4, sticky="w", padx=10, pady=(4, 2))
+
+        ttk.Label(form, text="Run Type:").grid(
+            row=10, column=0, sticky="w", **pad)
+        self._grad_type_var = tk.StringVar(
+            value=self.chrom.gradient_type if self.chrom.gradient_type else "isocratic")
+        grad_cb = ttk.Combobox(
+            form, textvariable=self._grad_type_var,
+            values=["isocratic", "linear gradient", "custom gradient"],
+            state="readonly", width=20)
+        grad_cb.grid(row=10, column=1, columnspan=2, sticky="w", pady=3)
+        grad_cb.bind("<<ComboboxSelected>>", self._on_grad_type_change)
+
+        # %B initial
+        self._b_init_var = tk.StringVar(
+            value=f"{self.chrom.b_initial:.4g}"
+            if not math.isnan(self.chrom.b_initial) else "")
+        self._b_init_lbl = ttk.Label(form, text="%B (constant):")
+        self._b_init_lbl.grid(row=11, column=0, sticky="w", **pad)
+        self._b_init_entry = ttk.Entry(form, textvariable=self._b_init_var, width=10)
+        self._b_init_entry.grid(row=11, column=1, sticky="w", pady=3)
+        ttk.Label(form, text="%", style="Muted.TLabel").grid(
+            row=11, column=2, sticky="w")
+
+        # %B final (hidden for isocratic)
+        self._b_final_var = tk.StringVar(
+            value=f"{self.chrom.b_final:.4g}"
+            if not math.isnan(self.chrom.b_final) else "")
+        self._b_final_lbl = ttk.Label(form, text="%B Final:")
+        self._b_final_lbl.grid(row=12, column=0, sticky="w", **pad)
+        self._b_final_entry = ttk.Entry(form, textvariable=self._b_final_var, width=10)
+        self._b_final_entry.grid(row=12, column=1, sticky="w", pady=3)
+        self._b_final_unit = ttk.Label(form, text="%", style="Muted.TLabel")
+        self._b_final_unit.grid(row=12, column=2, sticky="w")
+
+        # Gradient / analysis time
+        self._grad_time_var = tk.StringVar(
+            value=f"{self.chrom.gradient_time:.4g}"
+            if not math.isnan(self.chrom.gradient_time) else "")
+        self._grad_time_lbl = ttk.Label(form, text="Analysis Time:")
+        self._grad_time_lbl.grid(row=13, column=0, sticky="w", **pad)
+        self._grad_time_entry = ttk.Entry(form, textvariable=self._grad_time_var, width=10)
+        self._grad_time_entry.grid(row=13, column=1, sticky="w", pady=3)
+        ttk.Label(form, text="min", style="Muted.TLabel").grid(
+            row=13, column=2, sticky="w")
+
+        ttk.Separator(form, orient="horizontal").grid(
+            row=14, column=0, columnspan=4, sticky="ew", pady=(6, 2))
+
+        # ── Notes ───────────────────────────────────────────────────────────
+        ttk.Label(form, text="Notes:").grid(
+            row=15, column=0, sticky="nw", pady=(6, 2), padx=10)
+        self._notes_text = tk.Text(
+            form, width=28, height=3,
+            bg=self.theme.PANEL_BG, fg=self.theme.FG,
+            insertbackground=self.theme.FG, relief="flat",
+            highlightthickness=1,
+            highlightbackground=self.theme.BORDER2)
+        self._notes_text.grid(
+            row=15, column=1, columnspan=3, sticky="ew", pady=(6, 2))
+        self._notes_text.insert("1.0", self.chrom.run_notes)
+
+        form.columnconfigure(1, weight=1)
+
+        # Hint
+        hint_frame = ttk.Frame(self)
+        hint_frame.pack(fill="x", padx=12, pady=(4, 0))
+        ttk.Label(
+            hint_frame,
+            text="💡 'Plot Label' appears in plot legends. "
+                 "Flow Rate and Linear Velocity are independent — enter each separately if known. "
+                 "Gradient parameters (ΔB, Ramp, tG/tA) are computed automatically from %B fields.",
+            wraplength=460, justify="left",
+            style="Muted.TLabel",
+            font=("Helvetica Neue", 8)
+        ).pack(anchor="w")
+
+        # Buttons
+        btn_row = ttk.Frame(self)
+        btn_row.pack(fill="x", padx=12, pady=10)
+        ttk.Button(btn_row, text="💾 Save",
+                   command=self._save).pack(side="left", padx=4)
+        ttk.Button(btn_row, text="Cancel",
+                   command=self.destroy,
+                   style="Secondary.TButton").pack(side="left")
+
+        # Apply initial visibility state
+        self._on_grad_type_change()
+
+    def _on_grad_type_change(self, event=None):
+        """Show/hide %B final and relabel fields based on gradient type."""
+        gt = self._grad_type_var.get()
+        if gt == "isocratic":
+            self._b_init_lbl.config(text="%B (constant):")
+            self._b_final_lbl.grid_remove()
+            self._b_final_entry.grid_remove()
+            self._b_final_unit.grid_remove()
+            self._grad_time_lbl.config(text="Analysis Time:")
+        elif gt == "linear gradient":
+            self._b_init_lbl.config(text="%B Initial:")
+            self._b_final_lbl.grid()
+            self._b_final_entry.grid()
+            self._b_final_unit.grid()
+            self._grad_time_lbl.config(text="Gradient Time (tG):")
+        else:  # custom gradient
+            self._b_init_lbl.config(text="%B Initial:")
+            self._b_final_lbl.grid()
+            self._b_final_entry.grid()
+            self._b_final_unit.grid()
+            self._grad_time_lbl.config(text="Analysis Time:")
+
+    def _save(self):
+        import math
+
+        def _f(var, default=float("nan")):
+            s = var.get().strip()
+            if not s:
+                return default
+            try:
+                return float(s.replace(",", "."))
+            except ValueError:
+                return default
+
+        def _ff(var):
+            """Float with 0.0 default (for flow/velocity — 0 = not set)."""
+            return _f(var, default=0.0)
+
+        flow = _ff(self._flow_var)
+        uvel = _ff(self._uvel_var)
+        temp = _ff(self._temp_var)
+
+        self.chrom.display_label  = self._label_var.get().strip()
+        self.chrom.temperature    = temp
+        self.chrom.mobile_phase   = self._mp_var.get().strip()
+        self.chrom.gradient_type  = self._grad_type_var.get()
+        self.chrom.b_initial      = _f(self._b_init_var)
+        self.chrom.b_final        = _f(self._b_final_var)
+        self.chrom.gradient_time  = _f(self._grad_time_var)
+        self.chrom.run_notes      = self._notes_text.get("1.0", "end").strip()
+
+        # For isocratic: b_final = b_initial (constant %B)
+        if self.chrom.gradient_type == "isocratic":
+            self.chrom.b_final = self.chrom.b_initial
+
+        # Store flow and velocity exactly as entered — NO cross-conversion.
+        # They are independent; inferring one from the other requires column
+        # porosity which is not reliably known.
+        self.chrom.flow_rate = flow
+        self.chrom.linear_velocity = uvel
+
+        if self.on_save:
+            self.on_save()
+        self.destroy()

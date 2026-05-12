@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>OniChromLC — Quick-Check Tool for LC Experiments</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #0d1117;
+      --paper: #f8f6f1;
+      --accent: #1a6fff;
+      --accent2: #00c9a7;
+      --muted: #6b7280;
+      --border: #e2ddd6;
+      --card: #ffffff;
+      --tag-bg: #eef3ff;
+      --tag-color: #1a6fff;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: 'Outfit', sans-serif;
+      font-weight: 300;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 3rem;
+      height: 64px;
+      background: rgba(248,246,241,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-family: 'DM Mono', monospace;
+      font-weight: 500; font-size: 1.1rem; letter-spacing: -0.03em;
+      color: var(--ink); text-decoration: none;
+    }
+    .nav-logo span { color: var(--accent); }
+    .nav-links { display: flex; gap: 2.5rem; list-style: none; }
+    .nav-links a {
+      font-size: 0.85rem; font-weight: 400; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--muted); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--ink); }
+    .nav-cta {
+      background: var(--accent); color: #fff;
+      padding: 0.5rem 1.3rem; border-radius: 6px;
+      font-size: 0.85rem; font-weight: 500; letter-spacing: 0.03em;
+      text-decoration: none; transition: opacity 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.85; }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 100vh;
+      display: grid; grid-template-columns: 1fr 1fr;
+      align-items: center;
+      padding: 80px 3rem 4rem;
+      gap: 4rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: -200px; right: -200px;
+      width: 700px; height: 700px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(26,111,255,0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--tag-bg); color: var(--tag-color);
+      font-size: 0.75rem; font-weight: 500; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 5px 12px; border-radius: 999px;
+      border: 1px solid rgba(26,111,255,0.2);
+      margin-bottom: 1.5rem;
+    }
+    .hero-badge::before { content: '●'; font-size: 0.5rem; color: var(--accent2); }
+    h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2.8rem, 5vw, 4.2rem);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.5rem;
+    }
+    h1 em { font-style: italic; color: var(--accent); }
+    .hero-desc {
+      font-size: 1.1rem; color: #444; max-width: 520px;
+      margin-bottom: 2.5rem; line-height: 1.8;
+    }
+    .hero-actions { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: var(--ink); color: #fff;
+      padding: 0.8rem 2rem; border-radius: 8px;
+      font-size: 0.95rem; font-weight: 500;
+      text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 14px rgba(13,17,23,0.18);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(13,17,23,0.22); }
+    .btn-secondary {
+      color: var(--muted); font-size: 0.9rem; font-weight: 400;
+      text-decoration: none; display: flex; align-items: center; gap: 6px;
+      transition: color 0.2s;
+    }
+    .btn-secondary:hover { color: var(--ink); }
+    .btn-secondary::after { content: '↓'; }
+
+    .doi-box {
+      margin-top: 2.5rem;
+      padding: 0.8rem 1.2rem;
+      background: rgba(26,111,255,0.05);
+      border: 1px dashed rgba(26,111,255,0.3);
+      border-radius: 8px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem; color: var(--muted);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .doi-box strong { color: var(--ink); font-weight: 500; }
+    .doi-link {
+      color: var(--accent); text-decoration: none;
+      font-style: italic;
+      letter-spacing: 0.01em;
+    }
+    .doi-link:hover { text-decoration: underline; }
+
+    /* hero screenshot */
+    .hero-visual {
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .screenshot-frame {
+      width: 100%; max-width: 640px;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 30px 80px rgba(13,17,23,0.18), 0 0 0 1px var(--border);
+      animation: float 6s ease-in-out infinite;
+    }
+    .screenshot-frame img { width: 100%; display: block; }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+    .hero-stat {
+      position: absolute; bottom: -20px; left: -20px;
+      background: #fff; border: 1px solid var(--border);
+      border-radius: 12px; padding: 1rem 1.4rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      font-size: 0.82rem;
+    }
+    .hero-stat .val {
+      font-family: 'DM Mono', monospace;
+      font-size: 1.4rem; font-weight: 500;
+      color: var(--accent2); display: block;
+    }
+
+    /* ── SECTION COMMON ── */
+    section { padding: 6rem 3rem; }
+    .section-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem; font-weight: 500;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 1rem;
+    }
+    h2 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2rem, 3.5vw, 2.8rem);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+    .section-intro { font-size: 1.05rem; color: #555; max-width: 560px; line-height: 1.8; }
+
+    /* ── MODULES SECTION ── */
+    .modules { background: #fff; }
+    .modules-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2px; margin-top: 4rem;
+      border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+    }
+    .module-card {
+      padding: 2.5rem 2rem;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      transition: background 0.25s;
+      position: relative;
+    }
+    .module-card:hover { background: var(--paper); }
+    .module-num {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem; color: var(--accent);
+      font-weight: 500; letter-spacing: 0.1em;
+      margin-bottom: 1rem;
+    }
+    .module-card h3 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.3rem; margin-bottom: 0.6rem; letter-spacing: -0.01em;
+    }
+    .module-card p { font-size: 0.9rem; color: #666; line-height: 1.7; }
+    .module-tag {
+      display: inline-block; margin-top: 1rem;
+      background: var(--tag-bg); color: var(--tag-color);
+      font-size: 0.7rem; font-weight: 500; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 3px 10px; border-radius: 999px;
+    }
+
+    /* ── SCREENSHOTS ── */
+    .screenshots { background: var(--paper); }
+    .screenshots-header {
+      display: flex; justify-content: space-between; align-items: flex-end;
+      margin-bottom: 3.5rem; flex-wrap: wrap; gap: 1.5rem;
+    }
+    .tabs {
+      display: flex; gap: 4px;
+      background: var(--border); padding: 4px; border-radius: 10px;
+    }
+    .tab {
+      padding: 0.45rem 1.1rem;
+      background: transparent; border: none; cursor: pointer;
+      font-family: 'Outfit', sans-serif; font-size: 0.82rem; font-weight: 400;
+      color: var(--muted); border-radius: 7px; transition: all 0.2s;
+    }
+    .tab.active { background: #fff; color: var(--ink); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .tab-panels { position: relative; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .screen-wrap {
+      border-radius: 16px; overflow: hidden;
+      box-shadow: 0 20px 60px rgba(13,17,23,0.12), 0 0 0 1px var(--border);
+    }
+    .screen-wrap img { width: 100%; display: block; }
+    .screen-caption {
+      margin-top: 1.5rem;
+      display: flex; gap: 2rem; flex-wrap: wrap;
+    }
+    .cap-item { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .cap-item::before { content: '→'; color: var(--accent); font-size: 0.9rem; }
+
+    /* ── FEATURES ── */
+    .features {
+      background: var(--ink); color: #fff;
+    }
+    .features .section-label { color: var(--accent2); }
+    .features h2 { color: #fff; }
+    .features .section-intro { color: #a0aec0; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem; margin-top: 4rem;
+    }
+    .feat-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px; padding: 2rem;
+      transition: border-color 0.25s, background 0.25s;
+    }
+    .feat-card:hover {
+      border-color: rgba(26,111,255,0.4);
+      background: rgba(26,111,255,0.06);
+    }
+    .feat-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: rgba(26,111,255,0.15); display: flex; align-items: center; justify-content: center;
+      margin-bottom: 1.2rem; font-size: 1.15rem;
+    }
+    .feat-card h4 {
+      font-weight: 500; font-size: 1rem; margin-bottom: 0.5rem; color: #fff;
+    }
+    .feat-card p { font-size: 0.88rem; color: #8898aa; line-height: 1.7; }
+
+    /* ── CITATION ── */
+    .citation-section {
+      background: #fff; border-top: 1px solid var(--border);
+    }
+    .citation-card {
+      max-width: 780px; margin: 3rem auto 0;
+      background: var(--paper); border: 1px solid var(--border);
+      border-radius: 16px; padding: 2.5rem;
+      position: relative; overflow: hidden;
+    }
+    .citation-card::before {
+      content: '"'; position: absolute; top: -20px; left: 20px;
+      font-family: 'DM Serif Display', serif; font-size: 8rem;
+      color: rgba(26,111,255,0.07); line-height: 1;
+    }
+    .citation-card .cite-text {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.15rem; line-height: 1.6; color: var(--ink);
+      margin-bottom: 1.5rem; font-style: italic;
+    }
+    .cite-meta { font-size: 0.82rem; color: var(--muted); }
+    .cite-doi {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 1rem; padding: 0.6rem 1rem;
+      background: var(--tag-bg); border: 1px solid rgba(26,111,255,0.2);
+      border-radius: 8px; font-family: 'DM Mono', monospace; font-size: 0.78rem;
+      color: var(--accent); text-decoration: none; transition: background 0.2s;
+    }
+    .cite-doi:hover { background: rgba(26,111,255,0.1); }
+    .cite-doi-placeholder {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 1rem; padding: 0.6rem 1rem;
+      background: #f5f5f5; border: 1px dashed #ccc;
+      border-radius: 8px; font-family: 'DM Mono', monospace; font-size: 0.78rem;
+      color: #999; font-style: italic;
+    }
+
+    /* ── DOWNLOAD ── */
+    .download {
+      background: linear-gradient(135deg, #0f2547 0%, #1a3a72 50%, #0f2547 100%);
+      color: #fff; text-align: center;
+    }
+    .download h2 { color: #fff; }
+    .download .section-intro { color: rgba(255,255,255,0.65); margin: 0 auto 3rem; }
+    .download-cards {
+      display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap;
+    }
+    .dl-card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px; padding: 2rem 2.5rem;
+      min-width: 220px; transition: background 0.25s;
+      text-decoration: none; color: #fff;
+    }
+    .dl-card:hover { background: rgba(255,255,255,0.13); }
+    .dl-os { font-size: 2rem; margin-bottom: 0.8rem; }
+    .dl-label { font-size: 0.8rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.08em; }
+    .dl-platform { font-size: 1rem; font-weight: 500; margin-top: 0.3rem; }
+    .dl-note { font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-top: 0.5rem; }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--ink); color: rgba(255,255,255,0.4);
+      padding: 3rem; font-size: 0.82rem;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 1rem;
+    }
+    footer a { color: rgba(255,255,255,0.55); text-decoration: none; transition: color 0.2s; }
+    footer a:hover { color: #fff; }
+    .footer-logo {
+      font-family: 'DM Mono', monospace; font-size: 0.95rem; font-weight: 500;
+      color: #fff; text-decoration: none;
+    }
+    .footer-logo span { color: var(--accent); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 860px) {
+      .hero { grid-template-columns: 1fr; padding-top: 100px; }
+      .hero-visual { display: none; }
+      nav { padding: 0 1.5rem; }
+      .nav-links { display: none; }
+      section { padding: 4rem 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#"><span>Oni</span>Chrom</a>
+  <ul class="nav-links">
+    <li><a href="#modules">Modules</a></li>
+    <li><a href="#screenshots">Screenshots</a></li>
+    <li><a href="#features">Features</a></li>
+  </ul>
+  <a class="nav-cta" href="#download">Download</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero" id="home">
+  <div>
+    <div class="hero-badge">Open-source · Bench-side LC companion</div>
+    <h1>Check your results<br><em>at the bench</em></h1>
+    <p class="hero-desc">
+      OniChromLC is a practical, open-source companion for liquid chromatography — designed to give you a quick, reliable read on your experimental results <em>while you work</em>. It is not a replacement for formal data treatment software; it is the tool you reach for first.
+    </p>
+    <div class="hero-actions">
+      <a href="#download" class="btn-primary">Download OniChromLC</a>
+      <a href="#screenshots" class="btn-secondary">See it in action</a>
+    </div>
+    <div class="doi-box">
+      <strong>DOI</strong>
+      
+      <a class="doi-link" href="https://doi.org/10.5281/zenodo.20143867" target="_blank">10.5281/zenodo.20143867</a>
+    </div>
+  </div>
+  <div class="hero-visual">
+    <div class="screenshot-frame">
+      <img src="OniChrom_module1.PNG" alt="OniChromLC M1 Separation module"/>
+    </div>
+  </div>
+</section>
+
+<!-- MODULES -->
+<section class="modules" id="modules">
+  <div class="section-label">Architecture</div>
+  <h2>Five integrated modules</h2>
+  <p class="section-intro">Each module covers a key stage of your LC workflow — giving you a fast, visual sanity check without replacing your formal data processing pipeline.</p>
+  <div class="modules-grid">
+    <div class="module-card">
+      <div class="module-num">M1 · SEPARATION</div>
+            <h3>Chromatographic Separation &amp; Performance Analysis</h3>
+
+      <p>
+        The Separation module provides a rapid visual and numerical evaluation
+        of chromatographic performance immediately after a run is completed.
+        Multiple chromatograms can be overlaid for direct comparison between
+        conditions such as flow rate, mobile phase composition, temperature,
+        gradient profile, or stationary phase.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        The module automatically computes major chromatographic parameters,
+        including retention factor (k), selectivity (α), resolution (Rs),
+        theoretical plate number (N), plate height (H), asymmetry/tailing,
+        peak width, and peak capacity. Integrated Van Deemter analysis tools
+        allow rapid evaluation of efficiency as a function of linear velocity,
+        helping users identify optimal operating conditions during method
+        optimization.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        Chromatograms may be imported from CSV files, pasted manually, or even
+        extracted directly from chromatogram screenshots through image-based
+        digitization. Gaussian and exponentially modified Gaussian (EMG)
+        overlays assist in peak inspection and visual validation of peak shape.
+      </p>
+
+      <span class="module-tag">Quick peak check</span>
+    </div>
+    <div class="module-card">
+      <div class="module-num">M2 · CALIBRATION</div>
+            <h3>Calibration, Quantification &amp; Signal Evaluation</h3>
+
+      <p>
+        The Calibration module was designed for rapid evaluation of analytical
+        linearity and signal quality during quantitative LC experiments.
+        Standard series can be loaded and inspected in real time, allowing
+        immediate verification of calibration consistency before formal data
+        processing.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        The module supports linear regression analysis with automatic R²
+        calculation, residual visualization, and outlier inspection.
+        Integrated Gaussian and EMG peak fitting tools help evaluate peak
+        integration quality, especially for partially asymmetric peaks.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        Additional analytical metrics include signal-to-noise ratio (S/N),
+        estimated limits of detection and quantification (LOD/LOQ),
+        concentration-response comparison, and exportable calibration tables.
+        The workflow is intended for quick analytical validation at the bench,
+        while preserving compatibility with formal validated software pipelines.
+      </p>
+
+      <span class="module-tag">Linearity check</span>
+    </div>
+    <div class="module-card">
+      <div class="module-num">M3 · MS Explorer</div>
+            <h3>Mass Spectrometry Formula Explorer &amp; Fragmentation Analysis</h3>
+
+      <p>
+        The MS Explorer module assists in rapid interpretation of mass
+        spectrometry data during LC-MS experiments. Users can search candidate
+        molecular formulas from high-resolution or low-resolution m/z values
+        while evaluating isotopic plausibility and fragmentation behavior.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        The software includes an extensive adduct library with more than
+        30 ionization possibilities, including protonated, sodiated,
+        potassiated, ammonium, formate, acetate, and complex calcium-formate
+        adducts commonly observed in electrospray ionization.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        Candidate formulas are filtered and ranked using chemical plausibility
+        criteria such as double-bond equivalence (DBE), elemental restrictions,
+        nitrogen rule evaluation, and H/C ratio inspection. Interactive
+        fragmentation trees and neutral loss visualization tools help users
+        formulate structural hypotheses directly during experimental work.
+      </p>
+    <span class="module-tag">Formula assignment</span> 
+    </div>
+    <div class="module-card">
+      <div class="module-num">M4 · EXPERIMENTAL DESIGN</div>
+      
+          <h3>Experimental Design &amp; LC Method Planning</h3>
+
+      <p>
+        The Planning module streamlines the creation and organization of
+        chromatographic optimization experiments. Multiple Design of
+        Experiments (DoE) strategies are supported, including Full Factorial,
+        Central Composite Design (CCD), Box-Behnken Design (BBD), and
+        Plackett-Burman screening designs.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        Experimental factors such as flow rate, solvent composition,
+        temperature, gradient time, or pH can be configured with automatic
+        randomization of run order to minimize systematic bias.
+        The module can also insert blank runs, equilibration steps,
+        and scheduled timestamps for long unattended sequences.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        Finalized sequences can be exported as CSV tables or printable run
+        sheets for direct use during laboratory operation. The module focuses
+        on practical planning and execution logistics, while statistical
+        modelling and response surface interpretation remain compatible with
+        external statistical software.
+      </p>
+
+      <span class="module-tag">Run planning</span>
+    </div>
+    <div class="module-card">
+      <div class="module-num">M5 · ABOUT</div>
+      <h3>Documentation, Equations &amp; Scientific Reference</h3>
+
+      <p>
+        The About module centralizes software documentation, theoretical
+        equations, methodological references, version history, and citation
+        information associated with OniChromLC.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        Important chromatographic equations used throughout the software are
+        documented directly inside the application, including plate theory,
+        Van Deemter relationships, chromatographic resolution equations,
+        calibration expressions, and signal-processing formulas.
+      </p>
+
+      <p style="margin-top:0.9rem;">
+        The module also contains author information, publication references,
+        software acknowledgements, and version tracking to support
+        reproducibility and proper citation in scientific publications.
+      </p>
+
+      <span class="module-tag">Documentation</span>
+    </div>
+  </div>
+</section>
+
+<!-- SCREENSHOTS -->
+<section class="screenshots" id="screenshots">
+  <div class="screenshots-header">
+    <div>
+      <div class="section-label">Interface</div>
+      <h2>See every module</h2>
+    </div>
+    <div class="tabs" id="tabBar">
+      <button class="tab active" data-tab="0">M1 · Separation</button>
+      <button class="tab" data-tab="1">M2 · Calibration</button>
+      <button class="tab" data-tab="2">M3 · MS Explorer</button>
+      <button class="tab" data-tab="3">M4 · Exp. Design</button>
+    </div>
+  </div>
+  <div class="tab-panels">
+    <div class="tab-panel active" id="panel-0">
+      <div class="screen-wrap">
+        <img src="OniChrom_module1.PNG" alt="M1 Separation module screenshot"/>
+      </div>
+      <div class="screen-caption">
+        <span class="cap-item">Interactive chromatogram overlay</span>
+        <span class="cap-item">Automatic peak labeling (P1, P2, P3…)</span>
+        <span class="cap-item">N, H, Rs, k computed per peak</span>
+        <span class="cap-item">Flow rate effect plots</span>
+      </div>
+    </div>
+    <div class="tab-panel" id="panel-1">
+      <div class="screen-wrap">
+        <img src="OniChrom_module_2.PNG" alt="M2 Calibration module screenshot"/>
+      </div>
+      <div class="screen-caption">
+        <span class="cap-item">Multi-concentration standard series</span>
+        <span class="cap-item">Gaussian integration with overlays</span>
+        <span class="cap-item">Linear fitting</span>
+        <span class="cap-item">Exportable calibration table</span>
+      </div>
+    </div>
+    <div class="tab-panel" id="panel-2">
+      <div class="screen-wrap">
+        <img src="OniChrom_module_3.PNG" alt="M3 MS Explorer module screenshot"/>
+      </div>
+      <div class="screen-caption">
+        <span class="cap-item">Fragmentation tree visualization</span>
+        <span class="cap-item">Neutral loss assignment dialog</span>
+        <span class="cap-item">Plausibility filters (DBE, H/C, N-rule)</span>
+        <span class="cap-item">Candidate formula ranking</span>
+      </div>
+    </div>
+    <div class="tab-panel" id="panel-3">
+      <div class="screen-wrap">
+        <img src="OniChrom_module_4.PNG" alt="M4 Experimental Design module screenshot"/>
+      </div>
+      <div class="screen-caption">
+        <span class="cap-item">CCD / BBD / Plackett-Burman designs</span>
+        <span class="cap-item">Automatic randomization &amp; blank runs</span>
+        <span class="cap-item">Scheduled run timestamps</span>
+        <span class="cap-item">Export CSV or Run Sheet (TXT)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="section-label">OniChromLC objectives</div>
+  <h2>Built for the bench, not the office</h2>
+  <p class="section-intro">OniChromLC is designed for the moments between runs — fast feedback, visual checks, and practical decisions. Formal data treatment stays in your statistical software.</p>
+  <div class="features-grid">
+    <div class="feat-card">
+      <div class="feat-icon">⚡</div>
+      <h4>Immediate feedback</h4>
+      <p>Load a run and get a readable result in seconds. No setup, no scripts — designed for the moment you pull a vial from the autosampler.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">👁️</div>
+      <h4>Visual</h4>
+      <p>Overlaid chromatograms, calibration plots, and fragmentation trees let you see what is happening, not just read a table of numbers.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🔒</div>
+      <h4>Offline &amp; local</h4>
+      <p>Runs entirely on your computer. No internet connection, no cloud, no data leaving the lab — suitable for regulated environments.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">📋</div>
+      <h4>Complement, not replace</h4>
+      <p>OniChromLC flags issues and builds intuition. Final quantification and reporting are done in your validated analysis pipeline, as they should be.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🧪</div>
+      <h4>Covers the full workflow</h4>
+      <p>From checking a separation to drafting a DOE run list — all common bench-side decisions are covered in one lightweight application.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🔓</div>
+      <h4>Open source</h4>
+      <p>Fully transparent code. Inspect, adapt, or extend OniChromLC freely. No licence fees, no locked features.</p>
+    </div>
+  </div>
+</section>
+
+
+<!-- DOWNLOAD -->
+<section class="download" id="download">
+  <div class="section-label" style="color:var(--accent2);">Get started</div>
+  <h2>Download OniChromLC</h2>
+  <p class="section-intro">Available for Windows, macOS, and Linux. Free and open-source.</p>
+  <div class="download-cards">
+    <a class="dl-card" href="#LINK#" target="_blank">
+      <div class="dl-os">🪟</div>
+      <div class="dl-label">Platform</div>
+      <div class="dl-platform">Windows</div>
+      <div class="dl-note">.exe installer</div>
+    </a>
+
+    <a class="dl-card" href="#LINK#" target="_blank">
+      <div class="dl-os">📦</div>
+      <div class="dl-label">Source</div>
+      <div class="dl-platform">GitHub</div>
+      <div class="dl-note">View source code</div>
+    </a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <a class="footer-logo" href="#"><span>Oni</span>Chrom</a>
+  <span>© 2026 João Victor Basolli Borsatto · Open-source LC analysis suite</span>
+  <a href="https://github.com/" target="_blank">GitHub →</a>
+</footer>
+
+<script>
+  // Tab switching
+  const tabs = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.tab-panel');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      panels.forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>
