@@ -1,5 +1,5 @@
-# OniChrom v1.0.0
-**Professional Chromatography Analysis Software**
+# OniChromLC v1.0.0
+**Liquidi Chromatography  Software**
 
 ## Installation
 
@@ -19,7 +19,7 @@ python main.py
 |--------|-------------|
 | M1 · Separation | Van Deemter analysis, plate height, peak capacity, all chromatographic parameters |
 | M2 · Calibration | Calibration curves, Gaussian/EMG peak fitting, LOD/LOQ, S/N |
-| M3 · MS Finder | High-res / low-res mass search with 34+ adducts, formula calculator |
+| M3 · MS Explorer | High-res / low-res mass search with 34+ adducts, formula calculator |
 | M4 · Planning | Full Factorial, CCD, Box-Behnken, Plackett-Burman DoE |
 | M5 · About | Full equations and method reference |
 
