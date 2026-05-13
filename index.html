@@ -415,7 +415,7 @@
 
       <p>
         The Separation module provides a rapid visual and numerical evaluation
-        of chromatographic performance immediately after a run is completed.
+        of chromatographic performance.
         Multiple chromatograms can be overlaid for direct comparison between
         conditions such as flow rate, mobile phase composition, temperature,
         gradient profile, or stationary phase.
@@ -424,17 +424,15 @@
       <p style="margin-top:0.9rem;">
         The module automatically computes major chromatographic parameters,
         including retention factor (k), selectivity (α), resolution (Rs),
-        theoretical plate number (N), plate height (H), asymmetry/tailing,
+        efficiency (N), plate height (H), asymmetry/tailing,
         peak width, and peak capacity. Integrated Van Deemter analysis tools
-        allow rapid evaluation of efficiency as a function of linear velocity,
+        allow rapid evaluation of plate height as a function of linear velocity,
         helping users identify optimal operating conditions during method
         optimization.
       </p>
 
       <p style="margin-top:0.9rem;">
-        Chromatograms may be imported from CSV files, pasted manually, or even
-        extracted directly from chromatogram screenshots through image-based
-        digitization. Gaussian and exponentially modified Gaussian (EMG)
+        Chromatograms may be imported from CSV files. Gaussian and exponentially modified Gaussian
         overlays assist in peak inspection and visual validation of peak shape.
       </p>
 
@@ -447,15 +445,15 @@
       <p>
         The Calibration module was designed for rapid evaluation of analytical
         linearity and signal quality during quantitative LC experiments.
-        Standard series can be loaded and inspected in real time, allowing
+        Standard series can be loaded and inspected, allowing
         immediate verification of calibration consistency before formal data
-        processing.
+        processing. Multi-peak chromatograms are also allowed.
       </p>
 
       <p style="margin-top:0.9rem;">
         The module supports linear regression analysis with automatic R²
-        calculation, residual visualization, and outlier inspection.
-        Integrated Gaussian and EMG peak fitting tools help evaluate peak
+        calculation and residual visualization.
+        Integrated peak fitting tools help evaluate peak
         integration quality, especially for partially asymmetric peaks.
       </p>
 
@@ -463,8 +461,7 @@
         Additional analytical metrics include signal-to-noise ratio (S/N),
         estimated limits of detection and quantification (LOD/LOQ),
         concentration-response comparison, and exportable calibration tables.
-        The workflow is intended for quick analytical validation at the bench,
-        while preserving compatibility with formal validated software pipelines.
+        The workflow is intended for quick analytical validation at the bench.
       </p>
 
       <span class="module-tag">Linearity check</span>
@@ -474,14 +471,14 @@
             <h3>Mass Spectrometry Formula Explorer &amp; Fragmentation Analysis</h3>
 
       <p>
-        The MS Explorer module assists in rapid interpretation of mass
+        The MS Explorer module assists in rapid tentative interpretation of mass
         spectrometry data during LC-MS experiments. Users can search candidate
         molecular formulas from high-resolution or low-resolution m/z values
         while evaluating isotopic plausibility and fragmentation behavior.
       </p>
 
       <p style="margin-top:0.9rem;">
-        The software includes an extensive adduct library with more than
+        The software includes an adduct library with more than
         30 ionization possibilities, including protonated, sodiated,
         potassiated, ammonium, formate, acetate, and complex calcium-formate
         adducts commonly observed in electrospray ionization.
@@ -532,8 +529,7 @@
       <h3>Documentation, Equations &amp; Scientific Reference</h3>
 
       <p>
-        The About module centralizes software documentation, theoretical
-        equations, methodological references, version history, and citation
+        The About module centralizes software documentation
         information associated with OniChromLC.
       </p>
 
@@ -542,12 +538,6 @@
         documented directly inside the application, including plate theory,
         Van Deemter relationships, chromatographic resolution equations,
         calibration expressions, and signal-processing formulas.
-      </p>
-
-      <p style="margin-top:0.9rem;">
-        The module also contains author information, publication references,
-        software acknowledgements, and version tracking to support
-        reproducibility and proper citation in scientific publications.
       </p>
 
       <span class="module-tag">Documentation</span>
@@ -626,7 +616,7 @@
     <div class="feat-card">
       <div class="feat-icon">⚡</div>
       <h4>Immediate feedback</h4>
-      <p>Load a run and get a readable result in seconds. No setup, no scripts — designed for the moment you pull a vial from the autosampler.</p>
+      <p>Load a run and get a readable result in seconds. No setup, no scripts.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">👁️</div>
@@ -636,22 +626,12 @@
     <div class="feat-card">
       <div class="feat-icon">🔒</div>
       <h4>Offline &amp; local</h4>
-      <p>Runs entirely on your computer. No internet connection, no cloud, no data leaving the lab — suitable for regulated environments.</p>
+      <p>Runs entirely on your computer. No internet connection, no cloud, no data leaving the lab.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">📋</div>
       <h4>Complement, not replace</h4>
       <p>OniChromLC flags issues and builds intuition. Final quantification and reporting are done in your validated analysis pipeline, as they should be.</p>
-    </div>
-    <div class="feat-card">
-      <div class="feat-icon">🧪</div>
-      <h4>Covers the full workflow</h4>
-      <p>From checking a separation to drafting a DOE run list — all common bench-side decisions are covered in one lightweight application.</p>
-    </div>
-    <div class="feat-card">
-      <div class="feat-icon">🔓</div>
-      <h4>Open source</h4>
-      <p>Fully transparent code. Inspect, adapt, or extend OniChromLC freely. No licence fees, no locked features.</p>
     </div>
   </div>
 </section>
